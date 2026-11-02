@@ -345,17 +345,11 @@ textarea{min-height:120px;font-size:.9rem}
       <div class="note" style="font-size:.85rem;">Tracking should feel helpful, not stressful. If logging food leaves you feeling anxious or guilty, or pushes you to eat less than your body needs, it’s okay to pause and talk to a doctor, dietitian, or someone you trust. If you feel unsafe, contact local emergency services.</div>
     </div>
         <div class="card">
-      <h2>💾 Backup & restore</h2>
-      <label class="label" for="io">Export fills this box with your data. Copy it to keep a backup. To restore, paste a backup here and press Import.</label>
-      <textarea id="io" spellcheck="false" aria-label="Backup data"></textarea>
-      <div class="row" style="margin-top:10px;">
-        <button class="ghost" id="exportBtn">Export</button>
-        <button class="ghost" id="importBtn">Import</button>
-        <div class="grow"></div>
-        <button class="danger" id="clearBtn">Clear all data</button>
-      </div>
-      <div class="msg" id="smsg" aria-live="polite"></div>
-    </div>
+          <h2>🗑️ Clear data</h2>
+          <div class="muted">Erases all entries, custom foods, saved meals, goals and your saved name, on this device and on your account.</div>
+          <div class="row" style="margin-top:14px;"><button class="danger" id="clearBtn">Clear all data</button></div>
+          <div class="msg" id="smsg" aria-live="polite"></div>
+        </div>
         <div class="card">
       <h2>✨ Created by</h2>
       <div class="grid2">
@@ -780,23 +774,6 @@ $("calc").addEventListener("click",()=>{
   say("Goals updated.",true); render();
 });
 
-$("exportBtn").addEventListener("click",()=>{
-  $("io").value=JSON.stringify({app:"NutriTrack",version:2,calGoal:state.calGoal,protGoal:state.protGoal,entries:state.entries,custom,recipes,profile:loadProfile()},null,2);
-  say("Backup ready in the box below. Select all and copy to save.",true);
-});
-$("importBtn").addEventListener("click",()=>{
-  let d; try{d=JSON.parse($("io").value)}catch(e){return say("That isn’t valid backup data.",false)}
-  if(!d||!Array.isArray(d.entries)) return say("Backup is missing entries.",false);
-  const ids=new Set(state.entries.map(e=>e.id)); let added=0;
-  d.entries.forEach(e=>{if(e&&e.id&&e.date&&e.name&&!ids.has(e.id)){state.entries.push(e);added++}});
-  if(d.calGoal) state.calGoal=+d.calGoal; if(d.protGoal) state.protGoal=+d.protGoal;
-  if(Array.isArray(d.custom)) d.custom.forEach(c=>{if(c&&c.name&&!findFood(c.name)) custom.push(c)});
-  if(d.profile&&typeof d.profile==="object"){try{localStorage.setItem(PROFILE_KEY,JSON.stringify(d.profile));applyProfile()}catch(e){}}
-  if(Array.isArray(d.recipes)) d.recipes.forEach(r=>{if(r&&r.id&&r.name&&!recipes.some(x=>x.id===r.id)) recipes.push(r)});
-  save(); saveCustom(); saveRecipes();
-  $("goal").value=state.calGoal; $("pgoal").value=state.protGoal;
-  say(`Imported ${added} entries.`,true); render();
-});
 $("clearBtn").addEventListener("click",()=>{
   const b=$("clearBtn");
   if(!ui.pendingClear){
