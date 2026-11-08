@@ -56,8 +56,11 @@ Deno.serve(async (request) => {
       }),
     });
     if (!response.ok) {
-      const status = response.status === 429 ? 429 : 502;
-      return json({ error: response.status === 429 ? "USDA search is temporarily rate limited." : "USDA FoodData Central could not complete the search." }, status, headers);
+      console.error("USDA FoodData Central returned HTTP", response.status);
+      if (response.status === 429) return json({ error: "USDA search is temporarily rate limited." }, 429, headers);
+      if (response.status === 401 || response.status === 403) return json({ error: "USDA rejected the API key. Check that the saved key is a valid FoodData Central key." }, 502, headers);
+      if (response.status === 400) return json({ error: "USDA rejected the search request. Try a shorter food name." }, 502, headers);
+      return json({ error: `USDA FoodData Central returned HTTP ${response.status}.` }, 502, headers);
     }
 
     const result = await response.json();
@@ -74,7 +77,8 @@ Deno.serve(async (request) => {
     })).filter((food: any) => Number.isFinite(food.kcal) && Number.isFinite(food.prot));
 
     return json({ foods }, 200, headers);
-  } catch {
+  } catch (error) {
+    console.error("USDA request failed", error instanceof Error ? error.name : "unknown error");
     return json({ error: "Could not reach USDA FoodData Central." }, 502, headers);
   }
 });

@@ -557,7 +557,11 @@ async function searchUSDA(query,requestId){
     $("usdaStatus").textContent=usdaResults.length?"USDA FoodData Central results are included below.":"No USDA matches. Try another search or choose a built-in food.";
     showSuggestions();
   }catch(e){
-    if(requestId===usdaRequest){usdaResults=[];$("usdaStatus").textContent="USDA search unavailable; built-in foods are still available.";showSuggestions()}
+    if(requestId===usdaRequest){
+      usdaResults=[];let detail="";
+      try{if(e&&e.context&&typeof e.context.json==="function"){const body=await e.context.json();detail=body&&typeof body.error==="string"?body.error:""}}catch{}
+      $("usdaStatus").textContent=detail||"USDA search unavailable; built-in foods are still available.";showSuggestions();
+    }
   }
 }
 function pickFood(value){
