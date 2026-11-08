@@ -215,6 +215,7 @@ textarea{min-height:120px;font-size:.9rem}
           <label class="label" for="food">Food</label>
           <input type="text" id="food" placeholder="Start typing, e.g. chicken" maxlength="80" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sug">
           <div class="sug" id="sug" role="listbox" hidden></div>
+          <div class="muted" id="usdaStatus" aria-live="polite" style="margin-top:6px;font-size:.85rem">Search built-in foods and USDA FoodData Central as you type.</div>
         </div>
         <div class="grow"><label class="label" for="qty">Quantity</label><input type="number" id="qty" placeholder="Weight in grams" min="0" step="any"></div>
         <div class="grow"><label class="label" for="unit">Unit</label><select id="unit"><option value="g">grams</option></select></div>
@@ -238,7 +239,7 @@ textarea{min-height:120px;font-size:.9rem}
         <button id="cancelEdit" class="ghost" hidden>Cancel</button>
       </div>
       <div class="msg" id="msg" aria-live="polite"></div>
-      <div class="note">This page uses its built-in food list only. It does not search the web. Values are approximate per 100 g. Foods marked ✓ were checked against USDA data; the rest are estimates. Packaged products vary by brand, so check the label when it matters.</div>
+      <div class="note">Food search includes USDA FoodData Central. Nutrition values are shown per 100 g when available; packaged food values can vary by product.</div>
     </div>
     <div class="card">
       <div class="hero">
@@ -493,11 +494,14 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"
 const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 const fmtOr=(n,d=0)=>n==null?"–":fmt(n,d);
 const allFoods=()=>FOODS.concat(custom);
-function findFood(name){const k=name.trim().toLowerCase();return allFoods().find(f=>f.name.toLowerCase()===k)||null}
+let usdaResults=[],pickedUsdaFood=null,usdaTimer=null,usdaRequest=0;
+function findFood(name){const k=name.trim().toLowerCase();return allFoods().find(f=>f.name.toLowerCase()===k)||usdaResults.find(f=>f.name.toLowerCase()===k)||(pickedUsdaFood&&pickedUsdaFood.name.toLowerCase()===k?pickedUsdaFood:null)}
 function searchFoods(q){
   const k=q.trim().toLowerCase(); if(!k) return [];
-  return allFoods().filter(f=>f.name.toLowerCase().includes(k))
-    .sort((a,b)=>(b.name.toLowerCase().startsWith(k)-a.name.toLowerCase().startsWith(k))).slice(0,8);
+  const local=allFoods().filter(f=>f.name.toLowerCase().includes(k))
+    .sort((a,b)=>(b.name.toLowerCase().startsWith(k)-a.name.toLowerCase().startsWith(k))).slice(0,6);
+  const names=new Set(local.map(f=>f.name.toLowerCase()));
+  return local.concat(usdaResults.filter(f=>f.name.toLowerCase().includes(k)&&!names.has(f.name.toLowerCase()))).slice(0,12);
 }
 function say(text,ok,where){
   const el=where||(ui.tab==="settings"?$("smsg"):$("msg"));
@@ -540,18 +544,41 @@ function updatePreview(){
 function showSuggestions(){
   const list=searchFoods(foodEl.value);
   if(!list.length){sugEl.hidden=true;foodEl.setAttribute("aria-expanded","false");return}
-  sugEl.innerHTML=list.map((f,i)=>`<button type="button" role="option" data-i="${i}">${esc(f.name)}${f.ok?'<span class="ok">✓ USDA</span>':""}<small>${fmt(f.kcal)} kcal/100 g</small></button>`).join("");
+  sugEl.innerHTML=list.map((f,i)=>`<button type="button" role="option" data-i="${i}">${esc(f.name)}${f.source==="USDA"?'<span class="ok">USDA</span>':f.ok?'<span class="ok">✓ USDA</span>':""}<small>${fmt(f.kcal)} kcal/100 g${f.foodCategory?" · "+esc(f.foodCategory):""}</small></button>`).join("");
   sugEl.hidden=false; foodEl.setAttribute("aria-expanded","true"); sugEl._list=list;
 }
-function pickFood(name){
-  foodEl.value=name; sugEl.hidden=true; foodEl.setAttribute("aria-expanded","false");
-  setUnits(findFood(name)); updatePreview(); qtyEl.focus();
+async function searchUSDA(query,requestId){
+  if(!store.client)return;
+  try{
+    const {data,error}=await store.client.functions.invoke("usda-food-search",{body:{query}});
+    if(error)throw error;
+    if(requestId!==usdaRequest||query!==foodEl.value.trim())return;
+    usdaResults=Array.isArray(data.foods)?data.foods:[];
+    $("usdaStatus").textContent=usdaResults.length?"USDA FoodData Central results are included below.":"No USDA matches. Try another search or choose a built-in food.";
+    showSuggestions();
+  }catch(e){
+    if(requestId===usdaRequest){usdaResults=[];$("usdaStatus").textContent="USDA search unavailable; built-in foods are still available.";showSuggestions()}
+  }
 }
-foodEl.addEventListener("input",()=>{showSuggestions();setUnits(findFood(foodEl.value));updatePreview()});
+function pickFood(value){
+  const food=typeof value==="string"?findFood(value):value;
+  if(!food)return;
+  pickedUsdaFood=food.source==="USDA"?food:null;
+  foodEl.value=food.name; sugEl.hidden=true; foodEl.setAttribute("aria-expanded","false");
+  if(food.source==="USDA")$("usdaStatus").textContent="USDA FoodData Central · "+(food.dataType||"nutrition per 100 g");
+  setUnits(food); updatePreview(); qtyEl.focus();
+}
+foodEl.addEventListener("input",()=>{
+  const query=foodEl.value.trim();if(pickedUsdaFood&&query!==pickedUsdaFood.name)pickedUsdaFood=null;
+  usdaResults=[];showSuggestions();setUnits(findFood(query));updatePreview();clearTimeout(usdaTimer);
+  const requestId=++usdaRequest;
+  if(query.length>=2){$("usdaStatus").textContent="Searching USDA FoodData Central…";usdaTimer=setTimeout(()=>searchUSDA(query,requestId),350)}
+  else $("usdaStatus").textContent="Search built-in foods and USDA FoodData Central as you type.";
+});
 foodEl.addEventListener("blur",()=>setTimeout(()=>{sugEl.hidden=true},150));
-sugEl.addEventListener("mousedown",e=>{const b=e.target.closest("button[data-i]");if(b){e.preventDefault();pickFood(sugEl._list[+b.dataset.i].name)}});
+sugEl.addEventListener("mousedown",e=>{const b=e.target.closest("button[data-i]");if(b){e.preventDefault();pickFood(sugEl._list[+b.dataset.i])}});
 foodEl.addEventListener("keydown",e=>{
-  if(e.key==="Enter"){e.preventDefault(); if(!sugEl.hidden&&sugEl._list&&sugEl._list.length) pickFood(sugEl._list[0].name); else qtyEl.focus();}
+  if(e.key==="Enter"){e.preventDefault(); if(!sugEl.hidden&&sugEl._list&&sugEl._list.length) pickFood(sugEl._list[0]); else qtyEl.focus();}
   if(e.key==="Escape") sugEl.hidden=true;
 });
 qtyEl.addEventListener("input",updatePreview);
@@ -563,6 +590,7 @@ cProtEl.addEventListener("keydown",e=>{if(e.key==="Enter")submitEntry()});
 // ---- Add / edit ----
 function resetForm(){
   foodEl.value="";qtyEl.value="";cKcalEl.value="";cProtEl.value="";
+  pickedUsdaFood=null;
   setUnits(null); ui.editId=null;
   $("add").textContent="Add to log"; $("cancelEdit").hidden=true; $("formTitle").textContent="➕ Log food";
   updatePreview();
@@ -578,6 +606,10 @@ function submitEntry(){
     if(!(k>=0)||!(p>=0)) return say("Values can’t be negative.",false);
     f={name,kcal:k,prot:p,carb:null,fat:null,sn:"",sg:0,ok:false};
     custom.push(f); saveCustom();
+  }else if(f.source==="USDA"){
+    const saved=custom.find(item=>item.fdcId===f.fdcId);
+    if(saved)f=saved;
+    else{f={name:f.name,kcal:f.kcal,prot:f.prot,carb:f.carb,fat:f.fat,sn:"",sg:0,ok:true,fdcId:f.fdcId};custom.push(f);saveCustom()}
   }
   const base=makeEntry(f,qty,unitEl.value,mealEl.value,dayEl.value||todayISO());
   if(ui.editId){

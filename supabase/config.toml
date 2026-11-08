@@ -1,0 +1,4 @@
+project_id = "qgdmsjnxeetjjultlsij"
+
+[functions.usda-food-search]
+verify_jwt = false
